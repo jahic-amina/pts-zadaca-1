@@ -13,7 +13,7 @@ typedef struct {
     uint8_t saddr;
     uint8_t cmd_id;    
     uint8_t payload_size;           
-    uint16_t payload[MAX_PAYLOAD_SIZE]; 
+    uint8_t payload[MAX_PAYLOAD_SIZE]; 
     uint8_t checksum;               
 } __attribute__((packed)) fet_packet_t;
 
@@ -44,4 +44,3 @@ void    fet_packet_build_msg_req(fet_packet_t *pkt,
 void    fet_packet_build_msg_rep(fet_packet_t *pkt,
                                  uint8_t daddr,
                                  uint8_t saddr);
-

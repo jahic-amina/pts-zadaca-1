@@ -32,7 +32,7 @@ void initRADIO(uint8_t channel, uint8_t * pkt)
 	// bit 18-16 = 3 znaci da je adresa 4B (3+1)
 	// biti 15-8 = 0 znaci da se ne koristi S1 field (koji je 0B) i da se ne koristi statlen (koji je 0B)
 	// biti 7-0 = 22 znaci da je maksimalna duzina payloada 22B
-	NRF_RADIO->PCNF1 = 0x00030016
+	NRF_RADIO->PCNF1 = 0x00030016;
 	
 		
 	// Preset the address to use when receive and transmit packets (logical
@@ -79,21 +79,14 @@ void RADIO_IRQHandler(void)
 {
 	if(NRF_RADIO->EVENTS_END){
 		NRF_RADIO->EVENTS_END = 0;
-		// DMA je upisao vec paket. samo treba pomjeriti pokazivac u FIFO-u i spremiti paket
 		uint16_t next_head = (rx_fifo_head + PACKET_SIZE) % RX_FIFO_SIZE;
-		if (next_head != rx_fifo_tail) { // provjera da li je FIFO pun
-			memcpy(&rx_fifo[rx_fifo_head], rx_buffer, PACKET_SIZE);
+		if (next_head != rx_fifo_tail) {
+			memcpy(&rx_fifo[rx_fifo_head], (const void *)rx_buffer, PACKET_SIZE);
 			rx_fifo_head = next_head;
-		} 
+		}
 
-		NRF_RADIO->EVENTS_READY = 0;
-		NRF_RADIO->EVENTS_END = 0;
-		NRF_RADIO->TASKS_RXEN = 1;
-		while (!NRF_RADIO->EVENTS_READY);
-		NRF_RADIO->TASKS_START = 1;
+		rxEnableRADIO();
 	}
-
-	rxEnableRADIO();
 }
 
 
@@ -138,6 +131,3 @@ fet_packet_t *processRxFifoRADIO(void)
 
 	return NULL;
 }
-
-
-

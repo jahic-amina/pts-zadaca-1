@@ -1,4 +1,3 @@
-//prekucati kod
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
@@ -80,4 +79,3 @@ void fet_packet_build_msg_rep(fet_packet_t *pkt,
                      FET_CMD_MSG_TX_REP,
                      NULL, 0);
 }
-

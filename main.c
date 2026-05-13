@@ -29,7 +29,7 @@ static volatile user_info_t users[10];
 typedef struct {
     uint8_t  active;
     uint8_t  daddr;
-    char     msg[17];
+    char     msg[257];
     uint32_t sent_at_ms;
 } retx_state_t;
 
@@ -44,6 +44,7 @@ void sendAck(const fet_packet_t *rx_pkt);
 void sendMessage(uint8_t daddr, const char *msg);
 void retxTask(void);
 void beaconTask(void);
+void userListTask(void);
 
 /* ------------------------------------------------------------------ */
 /*  main                                                                */
@@ -71,6 +72,7 @@ int main(void)
 
         retxTask();
         beaconTask();
+        userListTask();
     }
 
     return 0;
@@ -84,18 +86,42 @@ void handleRxPktRADIO(const fet_packet_t *pkt)
     switch (pkt->cmd_id)
     {
         case FET_CMD_BEACON_IND:
+        {
+            /* Traži postojećeg korisnika */
+            int found = -1;
             for (int i = 0; i < 10; i++)
             {
-                if (users[i].addr == 0)
+                if (users[i].addr == pkt->saddr)
                 {
-                    memcpy(users[i].name, (const char *)pkt->payload, pkt->payload_size);
-                    users[i].name[pkt->payload_size] = '\0';
-                    users[i].addr = pkt->saddr;
-                    users[i].last_seen = getTIMEDATE();
+                    found = i;
                     break;
                 }
             }
+
+            if (found >= 0)
+            {
+                /* Ažuriraj last_seen za postojećeg korisnika */
+                users[found].last_seen = getTIMEDATE();
+            }
+            else
+            {
+                /* Dodaj novog korisnika na prvo slobodno mjesto */
+                for (int i = 0; i < 10; i++)
+                {
+                    if (users[i].addr == 0)
+                    {
+                        uint8_t len = pkt->payload_size;
+                        if (len > MAX_PAYLOAD_SIZE) len = MAX_PAYLOAD_SIZE;
+                        memcpy(users[i].name, (const char *)pkt->payload, len);
+                        users[i].name[len] = '\0';
+                        users[i].addr      = pkt->saddr;
+                        users[i].last_seen = getTIMEDATE();
+                        break;
+                    }
+                }
+            }
             break;
+        }
 
         case FET_CMD_MSG_TX_REQ:
             if (pkt->daddr != MY_ADDR && pkt->daddr != BROADCAST_ADDR)
@@ -158,8 +184,8 @@ void sendMessage(uint8_t daddr, const char *msg)
     g_retx.active     = 1;
     g_retx.daddr      = daddr;
     g_retx.sent_at_ms = getSYSTIM();
-    strncpy(g_retx.msg, msg, 16);
-    g_retx.msg[16] = '\0';
+    strncpy(g_retx.msg, msg, 256);
+    g_retx.msg[256] = '\0';
 }
 
 /* ------------------------------------------------------------------ */
@@ -194,6 +220,49 @@ void beaconTask(void)
 
         last_beacon_ms = getSYSTIM();
         beacon_period  = 1000 + (uint32_t)(rand() % 1001); /* rand(1000, 2000) ms */
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  User list task - periodični ispis + brisanje korisnika nakon 10s  */
+/* ------------------------------------------------------------------ */
+void userListTask(void)
+{
+    static uint32_t last_print_s = 0;
+    uint32_t now_s = getTIMEDATE();
+
+    /* Ukloni korisnike koji nisu viđeni 10 sekundi */
+    for (int i = 0; i < 10; i++)
+    {
+        if (users[i].addr == 0)
+            continue;
+        if (chk4TimeoutTIMEDATE(users[i].last_seen, 10) == RTC_TIMEOUT)
+        {
+            printUART0("\n[USER] Korisnik %s (0x%xb) uklonjen (timeout).\n",
+                       users[i].name, users[i].addr);
+            users[i].addr = 0;
+            users[i].name[0] = '\0';
+            users[i].last_seen = 0;
+        }
+    }
+
+    /* Ispiši listu svakih 5 sekundi */
+    if (chk4TimeoutTIMEDATE(last_print_s, 5) == RTC_TIMEOUT)
+    {
+        last_print_s = now_s;
+        printUART0("\n--- Lista korisnika ---\n", 0);
+        int count = 0;
+        for (int i = 0; i < 10; i++)
+        {
+            if (users[i].addr != 0)
+            {
+                printUART0("  [0x%xb] %s\n", users[i].addr, users[i].name);
+                count++;
+            }
+        }
+        if (count == 0)
+            printUART0("  (nema korisnika)\n", 0);
+        printUART0("-----------------------\n", 0);
     }
 }
 
