@@ -5,6 +5,7 @@
 #include <nrf52840.h>
 #include <nrf52840_bitfields.h>
 #include "uart.h"
+#include "packet.h"
 
 // Link Layer specification Section 2.1.2, Core 4.1 page 2503 
 #define ADV_CHANNEL_ACCESS_ADDRESS			0x8E89BED6
@@ -14,5 +15,9 @@
 
 void txDataRADIO(uint8_t channel, uint8_t * frame, int8_t power);
 int8_t getFreq4ChRADIO(uint8_t ch);
+void initRADIO(uint8_t channel, uint8_t * pkt);
+void rxEnableRADIO(void);
+fet_packet_t *processRxFifoRADIO(void);
+void txPktRADIO(const fet_packet_t *pkt);
 
 #endif 

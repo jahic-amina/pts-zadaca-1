@@ -1,115 +1,143 @@
 #include "radio.h"
+#include "delay.h"
+#include <string.h>
 
+#define RX_FIFO_SIZE 512
 
-void txDataRADIO(uint8_t channel, uint8_t * frame, int8_t power)
+static uint8_t rx_fifo[RX_FIFO_SIZE];
+static uint16_t rx_fifo_head = 0;
+static uint16_t rx_fifo_tail = 0;
+
+static volatile uint8_t rx_buffer[PACKET_SIZE];
+
+//provjeriti da li je bolje hardcodiraati kanal ili ga proslijediti kao argument funkciji initRADIO
+void initRADIO(uint8_t channel, uint8_t * pkt)
 {
-	//wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
-	// init HF clock
-	//----------------------------------------------------------------
-	NRF_CLOCK->EVENTS_HFCLKSTARTED = 0;									// start 16 MHz crystal oscillator 
-	NRF_CLOCK->TASKS_HFCLKSTART = 0x00000001;
-	while(NRF_CLOCK->EVENTS_HFCLKSTARTED == 0);							// wait for the external oscillator to start up
-
-	//wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
-	// init RADIO
-	//----------------------------------------------------------------
-	// set BLE 1Mbps mode
-    NRF_RADIO->MODE = (RADIO_MODE_MODE_Ble_1Mbit << RADIO_MODE_MODE_Pos);
+    // Radio config
+    NRF_RADIO->TXPOWER   = 0x00000004;									// 4 dBm Tx power
+    NRF_RADIO->FREQUENCY = (uint32_t)channel;  										// 2400 MHz 
+    NRF_RADIO->MODE = 0x00000000;										// 1Mbps BLE
 
 	// Set BLE Inter Frame Space (T_IFS) interval to 150 us.
-	NRF_RADIO->TIFS = 150;
+	// NRF_RADIO->TIFS = 150;
 
+	
 	// Enable data whitening, set the maximum payload length and set the
 	// access address size (3 + 1 octets).
-	NRF_RADIO->PCNF1 = 0x02030000|(RADIO_MAX_PAYLOAD_LEN);
+	//NRF_RADIO->PCNF1 = 0x02030000|(RADIO_MAX_PAYLOAD_LEN);
 
+	// packet configuration:
+	// bit 25 = 0 isljucuje se whiteen jer je custom protokol
+	// bit 24 = 0 je little endian format
+	// bit 18-16 = 3 znaci da je adresa 4B (3+1)
+	// biti 15-8 = 0 znaci da se ne koristi S1 field (koji je 0B) i da se ne koristi statlen (koji je 0B)
+	// biti 7-0 = 22 znaci da je maksimalna duzina payloada 22B
+	NRF_RADIO->PCNF1 = 0x00030016
+	
+		
 	// Preset the address to use when receive and transmit packets (logical
 	// address 0, which is assembled by base address BASE0 and prefix byte PREFIX0.AP0.
 	NRF_RADIO->RXADDRESSES = 0x00000001;
 	NRF_RADIO->TXADDRESS = 0x00000000;
 
-	// Set CRC length to 3 bytes and do not include access address in calculation of CRC
-	NRF_RADIO->CRCCNF = 0x00000103;
-	// set CRC polinomial
-	NRF_RADIO->CRCPOLY = 0x100065B;
-
-	// Configure the header size. The nRF52840 has 3 fields before the
-	// payload field: S0 (1B), LENGTH(up to 256B) and S1 (0B), they define PDU header.
-	NRF_RADIO->PCNF0 = 0x00000108;
+	NRF_RADIO->CRCCNF = 0x00000000; //jer korsitimo custom protokol i proracunavamo CRC
 	
-	// set tx power and input tx buffer
-	NRF_RADIO->TXPOWER = power;										
-	NRF_RADIO->PACKETPTR = (uint32_t)frame;
+	
+	//koristimo custom protokol i proracunavamo CRC, tako da se ne koristi ni S1 field ni statlen field
+	NRF_RADIO->PCNF0 = 0x00000000;
+	
+	
+	NRF_RADIO->PACKETPTR = (uint32_t)pkt;
 	
 	//wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
 	// select channel, frequency and send the data
 	//----------------------------------------------------------------
-	NRF_RADIO->DATAWHITEIV = channel & 0x3F;							// set channel
-	NRF_RADIO->FREQUENCY = getFreq4ChRADIO(channel);					// set channel frequency
-	NRF_RADIO->BASE0 = ((ADV_CHANNEL_ACCESS_ADDRESS) << 8)&0xFFFFFF00;
-	
+	// 4-bajtna lozinka ignorira sve pakete koji ne pocinju sa tom lozinkom, a 6-bajtna adresa ignorira sve pakete koji ne sadrze tu adresu
+	NRF_RADIO->FREQUENCY = 2UL;
+	NRF_RADIO->BASE0 = ((ADV_CHANNEL_ACCESS_ADDRESS) >> 8)&0xFFFFFF00;
 	NRF_RADIO->PREFIX0 = ((ADV_CHANNEL_ACCESS_ADDRESS) >> 24)&0x000000FF;
-	NRF_RADIO->CRCINIT = 0x00555555;
-	
-	NRF_RADIO->TASKS_TXEN = 0x00000001;
-	
-	// enable radio and wait for confirmation
-	NRF_RADIO->EVENTS_READY = 0U;
-    NRF_RADIO->TASKS_TXEN   = 1;
-    while (NRF_RADIO->EVENTS_READY == 0U);
 
-	// initiate transmission and wait for completion
-    NRF_RADIO->EVENTS_END  = 0U;
-    NRF_RADIO->TASKS_START = 1U;
-    while (NRF_RADIO->EVENTS_END == 0U);
-
-    // disable radio and wait for confirmation							// you can ommit this and use deinit radio
-    NRF_RADIO->EVENTS_DISABLED = 0U; 
-    NRF_RADIO->TASKS_DISABLE = 1U;
-    while (NRF_RADIO->EVENTS_DISABLED == 0U);
-    
-    
-    ////wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
-	//// disable RADIO
-	////------------------------------------------------------------------
-    //NRF_RADIO->SHORTS = 0;
-    //NRF_RADIO->EVENTS_DISABLED = 0;
-    //NRF_RADIO->TASKS_DISABLE = 1;
-    //while (NRF_RADIO->EVENTS_DISABLED == 0);
-
-    //NRF_RADIO->EVENTS_DISABLED = 0;
-    //NRF_RADIO->TASKS_RXEN = 0;
-    //NRF_RADIO->TASKS_TXEN = 0;
-    
+	// init RF part
+	NRF_RADIO->SHORTS |= 0x00000010;
+	NRF_RADIO->INTENSET = RADIO_INTENSET_END_Msk; //trebat ce za sleep mode?
+    NVIC_EnableIRQ(RADIO_IRQn);
 }
 
-int8_t getFreq4ChRADIO(uint8_t ch)
-{/// conver channel to actual frequency in MHz which will be added to 2400 MHz
-	
-	switch(ch) 
-	{
-		case(37):
-		{
-			return 2;
-		}
-		case 38:
-		{
-			return 26;
-		}
-		case 39:
-		{
-			return 80;
-		}
-		default:
-		{
-			if (ch > 39)
-				return -1;
-			else if (ch < 11)
-				return 4 + (2*ch);
-			else
-				return 6 + (2*ch);
-		}
+
+void rxEnableRADIO(void)
+{
+	NRF_RADIO->PACKETPTR = (uint32_t)&rx_buffer[rx_fifo_head];
+	NRF_RADIO->EVENTS_READY = 0;
+	NRF_RADIO->EVENTS_END = 0;
+	NRF_RADIO->TASKS_RXEN = 1;
+	while (!NRF_RADIO->EVENTS_READY);
+	NRF_RADIO->TASKS_START = 1;
+}
+
+
+void RADIO_IRQHandler(void)
+{
+	if(NRF_RADIO->EVENTS_END){
+		NRF_RADIO->EVENTS_END = 0;
+		// DMA je upisao vec paket. samo treba pomjeriti pokazivac u FIFO-u i spremiti paket
+		uint16_t next_head = (rx_fifo_head + PACKET_SIZE) % RX_FIFO_SIZE;
+		if (next_head != rx_fifo_tail) { // provjera da li je FIFO pun
+			memcpy(&rx_fifo[rx_fifo_head], rx_buffer, PACKET_SIZE);
+			rx_fifo_head = next_head;
+		} 
+
+		NRF_RADIO->EVENTS_READY = 0;
+		NRF_RADIO->EVENTS_END = 0;
+		NRF_RADIO->TASKS_RXEN = 1;
+		while (!NRF_RADIO->EVENTS_READY);
+		NRF_RADIO->TASKS_START = 1;
 	}
+
+	rxEnableRADIO();
 }
+
+
+void txPktRADIO(const fet_packet_t *pkt)
+{
+	//isljucujemo RX mod
+	NRF_RADIO->EVENTS_DISABLED = 0x00000000;
+	NRF_RADIO->TASKS_DISABLE = 0x00000001;
+	while (NRF_RADIO->EVENTS_DISABLED == 0);
+
+	NRF_RADIO->PACKETPTR = (uint32_t)pkt;
+	NRF_RADIO->EVENTS_READY = 0;
+	NRF_RADIO->TASKS_TXEN =1;
+
+	while (NRF_RADIO->EVENTS_READY == 0);
+	NRF_RADIO->TASKS_START = 1;
+
+	while(NRF_RADIO->EVENTS_END == 0);
+	NRF_RADIO->EVENTS_END = 0;
+
+	rxEnableRADIO();
+
+}
+
+
+fet_packet_t *processRxFifoRADIO(void)
+{
+	while (rx_fifo_tail != rx_fifo_head)
+	{
+		uint16_t available = (rx_fifo_head - rx_fifo_tail + RX_FIFO_SIZE) % RX_FIFO_SIZE;
+		if (available < PACKET_SIZE)
+			break;
+
+		fet_packet_t *pkt = (fet_packet_t *)&rx_fifo[rx_fifo_tail]; // privremeni buffer za parsiranje paketa
+		rx_fifo_tail = (rx_fifo_tail + PACKET_SIZE) % RX_FIFO_SIZE;
+
+		if (pkt->preamble != PREAMBLE_VALUE)      continue;
+		if (!fet_packet_verify_checksum(pkt))   continue;
+
+		return pkt; // vrati validan paket
+	}
+
+	return NULL;
+}
+
 
 
