@@ -9,8 +9,12 @@
 #include "radio.h"
 #include "packet.h"
 
-#define MY_ADDR 0x12
-#define MY_NAME "nRF52-amina"
+#define MY_ADDR 0x02
+#define MY_NAME "nRF52-azur"
+
+//Druga plocica
+//#define MY_ADDR 0x02
+//#define MY_NAME "nRF52-azur"
 
 /* ------------------------------------------------------------------ */
 /*  User list                                                           */
@@ -21,13 +25,14 @@ typedef struct {
     uint32_t last_seen;
 } user_info_t;
 
-static volatile user_info_t users[10];
+static user_info_t users[10];
 
 /* ------------------------------------------------------------------ */
 /*  Retransmission state                                                */
 /* ------------------------------------------------------------------ */
 typedef struct {
     uint8_t  active;
+    uint8_t  retx_count;    /* 0 = not yet retransmitted, 1 = already retransmitted once */
     uint8_t  daddr;
     char     msg[257];
     uint32_t sent_at_ms;
@@ -45,6 +50,8 @@ void sendMessage(uint8_t daddr, const char *msg);
 void retxTask(void);
 void beaconTask(void);
 void userListTask(void);
+void cliTask(void);
+void parseCLI(const char *line);
 
 /* ------------------------------------------------------------------ */
 /*  main                                                                */
@@ -56,13 +63,14 @@ int main(void)
 
     initUART0(6, 8, UART0_BAUDRATE_115200);
     printUART0("\nwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\n", 0);
-    printUART0("w nRF52 iBeacon test...\n", 0);
+    printUART0("w nRF52 PTS Zadaca 1...\n", 0);
     printUART0("-------------------------------------------------------\n", 0);
-    deinitUART0(6, 8);
 
     initWakeupRTC1(1000);
 
     srand(MY_ADDR);
+
+    startRADIO();
 
     while (1)
     {
@@ -73,6 +81,7 @@ int main(void)
         retxTask();
         beaconTask();
         userListTask();
+        cliTask();
     }
 
     return 0;
@@ -182,6 +191,7 @@ void sendMessage(uint8_t daddr, const char *msg)
     }
 
     g_retx.active     = 1;
+    g_retx.retx_count = 0;
     g_retx.daddr      = daddr;
     g_retx.sent_at_ms = getSYSTIM();
     strncpy(g_retx.msg, msg, 256);
@@ -196,10 +206,34 @@ void retxTask(void)
     if (!g_retx.active)
         return;
 
-    if (chk4TimeoutSYSTIM(g_retx.sent_at_ms, 3000) == SYSTIM_TIMEOUT)
+    if (chk4TimeoutSYSTIM(g_retx.sent_at_ms, 3000) != SYSTIM_TIMEOUT)
+        return;
+
+    if (g_retx.retx_count == 0)
     {
+        /* First (and only) retransmission */
+        g_retx.retx_count = 1;
+        g_retx.sent_at_ms = getSYSTIM();
         printUART0("\n[RETX] Nema ACK-a, ponovo saljemo...\n", 0);
-        sendMessage(g_retx.daddr, g_retx.msg);
+
+        uint8_t total_len = (uint8_t)strlen(g_retx.msg);
+        uint8_t offset    = 0;
+        while (offset < total_len)
+        {
+            uint8_t frag_len = total_len - offset;
+            if (frag_len > MAX_PAYLOAD_SIZE) frag_len = MAX_PAYLOAD_SIZE;
+            fet_packet_t pkt;
+            fet_packet_build(&pkt, g_retx.daddr, MY_ADDR, FET_CMD_MSG_TX_REQ,
+                             (const uint8_t *)(g_retx.msg + offset), frag_len);
+            txPktRADIO(&pkt);
+            offset += frag_len;
+        }
+    }
+    else
+    {
+        /* Already retransmitted once — give up */
+        g_retx.active = 0;
+        printUART0("\n[RETX] Nema potvrde, odustajemo.\n", 0);
     }
 }
 
@@ -263,6 +297,70 @@ void userListTask(void)
         if (count == 0)
             printUART0("  (nema korisnika)\n", 0);
         printUART0("-----------------------\n", 0);
+        printUART0("> ", 0);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  CLI - unos destinacije i poruke                                     */
+/* ------------------------------------------------------------------ */
+void parseCLI(const char *line)
+{
+    /* Expected format: "<hex_addr> <message>"  e.g. "AB Hello world" */
+    const char *space = strchr(line, ' ');
+    if (space == NULL)
+    {
+        printUART0("[CLI] Format: <hex_adresa> <poruka>\n", 0);
+        return;
+    }
+    uint8_t daddr = (uint8_t)strtol(line, NULL, 16);
+    const char *msg = space + 1;
+    if (*msg == '\0')
+    {
+        printUART0("[CLI] Poruka je prazna.\n", 0);
+        return;
+    }
+    printUART0("\n[CLI] Saljem -> 0x%xb: %s\n", daddr, msg);
+    sendMessage(daddr, msg);
+}
+
+void cliTask(void)
+{
+    static char    cli_buf[257];
+    static uint8_t cli_len      = 0;
+    static uint8_t prompt_shown = 0;
+
+    if (!prompt_shown)
+    {
+        printUART0("\n> ", 0);
+        prompt_shown = 1;
+    }
+
+    uint8_t ch;
+    while (getCharUART0(&ch))
+    {
+        if (ch == '\r' || ch == '\n')
+        {
+            cli_buf[cli_len] = '\0';
+            printUART0("\n", 0);
+            if (cli_len > 0)
+                parseCLI(cli_buf);
+            cli_len      = 0;
+            prompt_shown = 0;
+        }
+        else if ((ch == 0x08 || ch == 0x7F) && cli_len > 0)
+        {
+            /* Backspace: erase last character on terminal */
+            cli_len--;
+            putcharUART0(0x08);
+            putcharUART0(' ');
+            putcharUART0(0x08);
+        }
+        else if (ch >= 0x20 && cli_len < 256)
+        {
+            cli_buf[cli_len++] = ch;
+            putcharUART0(ch);   /* echo */
+        }
     }
 }
 

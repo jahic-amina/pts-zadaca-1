@@ -13,9 +13,8 @@
 #define RADIO_MAX_PAYLOAD_LEN					37
 #define RADIO_MAX_PDU							39
 
-void txDataRADIO(uint8_t channel, uint8_t * frame, int8_t power);
-int8_t getFreq4ChRADIO(uint8_t ch);
-void initRADIO(uint8_t channel, uint8_t * pkt);
+void initRADIO(void);
+void startRADIO(void);
 void rxEnableRADIO(void);
 fet_packet_t *processRxFifoRADIO(void);
 void txPktRADIO(const fet_packet_t *pkt);

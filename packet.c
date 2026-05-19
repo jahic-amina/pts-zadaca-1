@@ -1,6 +1,4 @@
-#include <stdint.h>
-#include <string.h>
-#include <stdlib.h>
+#include "packet.h"
 
 
 uint8_t fet_packet_compute_checksum(const fet_packet_t *pkt)

@@ -1,152 +1,242 @@
-PROJECT_NAME     := ibeacon
-TARGETS          := nrf52840_xxaa
-OUTPUT_DIRECTORY := _build
+PROJECT_NAME := main
 
-SDK_ROOT := ${HOME}/nRF52/nRF5_SDK
-PROJ_DIR := $(shell pwd)
+export OUTPUT_FILENAME
+MAKEFILE_NAME := $(MAKEFILE_LIST)
+MAKEFILE_DIR := $(dir $(MAKEFILE_NAME) ) 
+
+SDK_ROOT = ../../../
+TEMPLATE_PATH = ../../../components/toolchain/gcc
+NRFJPROG = ../../../nRF5x-Command-Line-Tools_9_3_1_Linux-x86_64/nrfjprog/
 
 
-$(OUTPUT_DIRECTORY)/nrf52840_xxaa.out: \
-  LINKER_SCRIPT  := gcc_nrf52.ld
+GNU_INSTALL_ROOT = ../../../../gcc-arm-none-eabi-4_8-2014q2
+GNU_VERSION = 4.8.4
+GNU_PREFIX = arm-none-eabi
 
-# Source files common to all targets
-SRC_FILES += \
-  $(SDK_ROOT)/modules/nrfx/mdk/gcc_startup_nrf52840.S \
-  $(SDK_ROOT)/components/libraries/log/src/nrf_log_frontend.c \
-  $(SDK_ROOT)/components/libraries/log/src/nrf_log_str_formatter.c \
-  $(SDK_ROOT)/components/boards/boards.c \
-  $(SDK_ROOT)/components/libraries/util/app_error.c \
-  $(SDK_ROOT)/components/libraries/util/app_error_handler_gcc.c \
-  $(SDK_ROOT)/components/libraries/util/app_error_weak.c \
-  $(SDK_ROOT)/components/libraries/util/app_util_platform.c \
-  $(SDK_ROOT)/components/libraries/util/nrf_assert.c \
-  $(SDK_ROOT)/components/libraries/atomic/nrf_atomic.c \
-  $(SDK_ROOT)/components/libraries/balloc/nrf_balloc.c \
-  $(SDK_ROOT)/external/fprintf/nrf_fprintf.c \
-  $(SDK_ROOT)/external/fprintf/nrf_fprintf_format.c \
-  $(SDK_ROOT)/components/libraries/memobj/nrf_memobj.c \
-  $(SDK_ROOT)/components/libraries/ringbuf/nrf_ringbuf.c \
-  $(SDK_ROOT)/components/libraries/strerror/nrf_strerror.c \
-  $(SDK_ROOT)/modules/nrfx/soc/nrfx_atomic.c \
-  $(PROJ_DIR)/main.c \
-  $(PROJ_DIR)/delay.c \
-  $(PROJ_DIR)/uart.c \
-  $(PROJ_DIR)/misc.c \
-  $(PROJ_DIR)/rtc.c \
-  $(PROJ_DIR)/radio.c \
-  $(SDK_ROOT)/modules/nrfx/mdk/system_nrf52840.c \
 
-# Include folders common to all targets
-INC_FOLDERS += \
-  $(SDK_ROOT)/components \
-  $(SDK_ROOT)/modules/nrfx/mdk \
-  $(PROJ_DIR) \
-  $(SDK_ROOT)/components/libraries/strerror \
-  $(SDK_ROOT)/components/toolchain/cmsis/include \
-  $(SDK_ROOT)/components/libraries/util \
-  $(SDK_ROOT)/components/libraries/balloc \
-  $(SDK_ROOT)/components/libraries/ringbuf \
-  $(SDK_ROOT)/modules/nrfx/hal \
-  $(SDK_ROOT)/components/libraries/bsp \
-  $(SDK_ROOT)/components/libraries/log \
-  $(SDK_ROOT)/modules/nrfx \
-  $(SDK_ROOT)/components/libraries/experimental_section_vars \
-  $(SDK_ROOT)/components/libraries/delay \
-  $(SDK_ROOT)/integration/nrfx \
-  $(SDK_ROOT)/components/drivers_nrf/nrf_soc_nosd \
-  $(SDK_ROOT)/components/libraries/atomic \
-  $(SDK_ROOT)/components/boards \
-  $(SDK_ROOT)/components/libraries/memobj \
-  $(SDK_ROOT)/external/fprintf \
-  $(SDK_ROOT)/components/libraries/log/src \
+MK := mkdir
+RM := rm -rf
+
+#echo suspend
+ifeq ("$(VERBOSE)","1")
+NO_ECHO := 
+else
+NO_ECHO := @
+endif
+
+# Toolchain commands
+CC              := '$(GNU_INSTALL_ROOT)/bin/$(GNU_PREFIX)-gcc'
+AS              := '$(GNU_INSTALL_ROOT)/bin/$(GNU_PREFIX)-as'
+AR              := '$(GNU_INSTALL_ROOT)/bin/$(GNU_PREFIX)-ar' -r
+LD              := '$(GNU_INSTALL_ROOT)/bin/$(GNU_PREFIX)-ld'
+NM              := '$(GNU_INSTALL_ROOT)/bin/$(GNU_PREFIX)-nm'
+OBJDUMP         := '$(GNU_INSTALL_ROOT)/bin/$(GNU_PREFIX)-objdump'
+OBJCOPY         := '$(GNU_INSTALL_ROOT)/bin/$(GNU_PREFIX)-objcopy'
+SIZE            := '$(GNU_INSTALL_ROOT)/bin/$(GNU_PREFIX)-size'
+
+#function for removing duplicates in a list
+remduplicates = $(strip $(if $1,$(firstword $1) $(call remduplicates,$(filter-out $(firstword $1),$1))))
+
+#source common to all targets
+C_SOURCE_FILES += main.c
+C_SOURCE_FILES += uart.c
+C_SOURCE_FILES += misc.c
+C_SOURCE_FILES += delay.c
+C_SOURCE_FILES += radio.c
+C_SOURCE_FILES += rtc.c
+C_SOURCE_FILES += packet.c
+C_SOURCE_FILES += $(SDK_ROOT)components/toolchain/system_nrf52.c
+
+
+
+#assembly files common to all targets
+ASM_SOURCE_FILES  = gcc_startup_nrf52.s
+
+#includes common to all targets
+INC_PATHS  = -I./
+INC_PATHS += -I$(abspath $(SDK_ROOT)components/device)
+INC_PATHS += -I$(abspath $(SDK_ROOT)components/toolchain)
+INC_PATHS += -I$(abspath $(SDK_ROOT)components/toolchain/cmsis/include)
+INC_PATHS += -I$(abspath $(SDK_ROOT)components/toolchain/gcc)
+
+
+
+
+
+
 
 # Libraries common to all targets
-LIB_FILES += \
+INC_PATHS += \
 
-# Optimization flags
-OPT = -O3 -g3
-# Uncomment the line below to enable link time optimization
-#OPT += -flto
+OBJECT_DIRECTORY = _build
+LISTING_DIRECTORY = $(OBJECT_DIRECTORY)
+OUTPUT_BINARY_DIRECTORY = $(OBJECT_DIRECTORY)
 
-# C flags common to all targets
-CFLAGS += $(OPT)
-CFLAGS += -DBOARD_PCA10056
-CFLAGS += -DBSP_DEFINES_ONLY
-CFLAGS += -DCONFIG_GPIO_AS_PINRESET
-CFLAGS += -DFLOAT_ABI_HARD
+# Sorting removes duplicates
+BUILD_DIRECTORIES := $(sort $(OBJECT_DIRECTORY) $(OUTPUT_BINARY_DIRECTORY) $(LISTING_DIRECTORY) )
+
+#flags common to all targets
 CFLAGS += -DNRF52840_XXAA
+CFLAGS += -DBOARD_PCA10056
+CFLAGS += -D__HEAP_SIZE=0
+CFLAGS += -D__STACK_SIZE=2048
 CFLAGS += -mcpu=cortex-m4
-CFLAGS += -mthumb -mabi=aapcs
-CFLAGS += -Wall -Werror
+CFLAGS += -mthumb -mabi=aapcs --std=gnu99
+CFLAGS += -Wall -O3 -g3
 CFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16
-# keep every function in a separate section, this allows linker to discard unused ones
 CFLAGS += -ffunction-sections -fdata-sections -fno-strict-aliasing
-CFLAGS += -fno-builtin -fshort-enums
+CFLAGS += -fno-builtin --short-enums
 
-# C++ flags common to all targets
-CXXFLAGS += $(OPT)
-# Assembler flags common to all targets
-ASMFLAGS += -g0
+LDFLAGS += -Xlinker -Map=$(LISTING_DIRECTORY)/$(OUTPUT_FILENAME).map
+LDFLAGS += -mthumb -mabi=aapcs -L $(TEMPLATE_PATH) -Tnrf52840_xxaa.ld
+LDFLAGS += -mcpu=cortex-m4
+LDFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16
+LDFLAGS += -Wl,--gc-sections
+LDFLAGS += --specs=nano.specs -lc -lnosys
+
+# Assembler flags
+ASMFLAGS += -x assembler-with-cpp
+ASMFLAGS += -g3
 ASMFLAGS += -mcpu=cortex-m4
 ASMFLAGS += -mthumb -mabi=aapcs
 ASMFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16
-ASMFLAGS += -DBOARD_PCA10056
-ASMFLAGS += -DBSP_DEFINES_ONLY
-ASMFLAGS += -DCONFIG_GPIO_AS_PINRESET
-ASMFLAGS += -DFLOAT_ABI_HARD
 ASMFLAGS += -DNRF52840_XXAA
+ASMFLAGS += -D__HEAP_SIZE=0
+ASMFLAGS += -D__STACK_SIZE=2048
 
-# Linker flags
-LDFLAGS += $(OPT)
-LDFLAGS += -mthumb -mabi=aapcs -L$(SDK_ROOT)/modules/nrfx/mdk -T$(LINKER_SCRIPT)
-LDFLAGS += -mcpu=cortex-m4
-LDFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16
-# let linker dump unused sections
-LDFLAGS += -Wl,--gc-sections
-# use newlib in nano version
-LDFLAGS += --specs=nano.specs
+#default target - first one defined
+default: nrf52832_xxaa_s132
 
-nrf52840_xxaa: CFLAGS += -D__HEAP_SIZE=8192
-nrf52840_xxaa: CFLAGS += -D__STACK_SIZE=8192
-nrf52840_xxaa: ASMFLAGS += -D__HEAP_SIZE=8192
-nrf52840_xxaa: ASMFLAGS += -D__STACK_SIZE=8192
-
-# Add standard libraries at the very end of the linker input, after all objects
-# that may need symbols provided by these libraries.
-LIB_FILES += -lc -lnosys -lm
+#building all targets
+all: 
+	$(NO_ECHO)$(MAKE) -f $(MAKEFILE_NAME) -C $(MAKEFILE_DIR) -e cleanobj
+	$(NO_ECHO)$(MAKE) -f $(MAKEFILE_NAME) -C $(MAKEFILE_DIR) -e nrf52832_xxaa_s132
 
 
-.PHONY: default help
+C_SOURCE_FILE_NAMES = $(notdir $(C_SOURCE_FILES))
+C_PATHS = $(call remduplicates, $(dir $(C_SOURCE_FILES) ) )
+C_OBJECTS = $(addprefix $(OBJECT_DIRECTORY)/, $(C_SOURCE_FILE_NAMES:.c=.o) )
 
-# Default target - first one defined
-default: nrf52840_xxaa
+ASM_SOURCE_FILE_NAMES = $(notdir $(ASM_SOURCE_FILES))
+ASM_PATHS = $(call remduplicates, $(dir $(ASM_SOURCE_FILES) ))
+ASM_OBJECTS = $(addprefix $(OBJECT_DIRECTORY)/, $(ASM_SOURCE_FILE_NAMES:.s=.o) )
 
-# Print all targets that can be built
-help:
-	@echo following targets are available:
-	@echo		nrf52840_xxaa
-	@echo		sdk_config - starting external tool for editing sdk_config.h
-	@echo		flash      - flashing binary
+vpath %.c $(C_PATHS)
+vpath %.s $(ASM_PATHS)
 
-TEMPLATE_PATH := $(SDK_ROOT)/components/toolchain/gcc
+OBJECTS = $(C_OBJECTS) $(ASM_OBJECTS)
+
+nrf52832_xxaa_s132: OUTPUT_FILENAME := main
+nrf52832_xxaa_s132: LINKER_SCRIPT=nrf52832.ld
+nrf52832_xxaa_s132: $(BUILD_DIRECTORIES) $(OBJECTS)
+	@echo Linking target: $(OUTPUT_FILENAME).out
+	$(NO_ECHO)$(CC) $(LDFLAGS) $(OBJECTS) $(LIBS) -o $(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).out
+	$(NO_ECHO)$(MAKE) -f $(MAKEFILE_NAME) -C $(MAKEFILE_DIR) -e finalize
+
+## Create build directories
+$(BUILD_DIRECTORIES):
+	echo $(MAKEFILE_NAME)
+	$(MK) $@
+
+# Create objects from C SRC files
+$(OBJECT_DIRECTORY)/%.o: %.c
+	@echo Compiling file: $(notdir $<)
+	$(NO_ECHO)$(CC) $(CFLAGS) $(INC_PATHS) -c -o $@ $<
+
+# Assemble files
+$(OBJECT_DIRECTORY)/%.o: %.s
+	@echo Compiling file: $(notdir $<)
+	$(NO_ECHO)$(CC) $(ASMFLAGS) $(INC_PATHS) -c -o $@ $<
 
 
-include $(TEMPLATE_PATH)/Makefile.common
+# Link
+$(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).out: $(BUILD_DIRECTORIES) $(OBJECTS)
+	@echo Linking target: $(OUTPUT_FILENAME).out
+	$(NO_ECHO)$(CC) $(LDFLAGS) $(OBJECTS) $(LIBS) -o $(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).out
 
-$(foreach target, $(TARGETS), $(call define_target, $(target)))
 
-.PHONY: flash erase
+## Create binary .bin file from the .out file
+$(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).bin: $(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).out
+	@echo Preparing: $(OUTPUT_FILENAME).bin
+	$(NO_ECHO)$(OBJCOPY) -O binary $(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).out $(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).bin
 
-# Flash the program
-flash: default
-	@echo Flashing: $(OUTPUT_DIRECTORY)/nrf52840_xxaa.hex
-	nrfjprog -f nrf52 --program $(OUTPUT_DIRECTORY)/nrf52840_xxaa.hex --sectorerase
-	nrfjprog -f nrf52 --reset
+## Create binary .hex file from the .out file
+$(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).hex: $(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).out
+	@echo Preparing: $(OUTPUT_FILENAME).hex
+	$(NO_ECHO)$(OBJCOPY) -O ihex $(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).out $(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).hex
+
+finalize: genbin genhex echosize
+
+genbin:
+	@echo Preparing: $(OUTPUT_FILENAME).bin
+	$(NO_ECHO)$(OBJCOPY) -O binary $(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).out $(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).bin
+	
+## Create binary .hex file from the .out file
+genhex: 
+	@echo Preparing: $(OUTPUT_FILENAME).hex
+	$(NO_ECHO)$(OBJCOPY) -O ihex $(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).out $(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).hex
+
+echosize:
+	$(NO_ECHO)$(SIZE) $(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).out
+	$(NO_ECHO)ls -l $(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).bin
+
+clean:
+	$(RM) $(BUILD_DIRECTORIES)
+
+cleanobj:
+	$(RM) $(BUILD_DIRECTORIES)/*.o
+
+flash: $(OUTPUT_DIRECTORY)/nrf52832_xxaa.hex
+	@echo Flashing: $<
+	$(NRFJPROG)nrfjprog --program $< -f nrf52 --sectorerase
+	$(NRFJPROG)nrfjprog --reset -f nrf52
+
+# Flash softdevice
+flash_softdevice:
+	@echo Flashing: s132_nrf52_5.0.0-1.alpha_softdevice.hex
+	$(NRFJPROG)nrfjprog --program $(SDK_ROOT)/components/softdevice/s132/hex/s132_nrf52_5.0.0-1.alpha_softdevice.hex -f nrf52 --sectorerase 
+	$(NRFJPROG)nrfjprog --reset -f nrf52
+
+
+#upload-bin: $(BUILD_DIRECTORIES)/$(OUTPUT_FILENAME).bin
+	#$(OPENOCD) -c "program $(OUTPUT_BINARY_DIRECTORY)/$(OUTPUT_FILENAME).bin  0x00020000  verify; reset; exit"
+	
+
+#upload: build/main.hex
+	#$(OPENOCD) -c "program build/main.hex verify; reset; exit"	
+
+
+#upload-softdevice: softdevice/s132_nrf52_5.0.0-1.alpha_softdevice.hex
+	#$(OPENOCD) -c init -c "reset init" -c halt -c "nrf52 mass_erase; sleep 500 ;program softdevice/s132_nrf52_5.0.0-1.alpha_softdevice.hex 0x0 ; verify_image oftdevice/s132_nrf52_5.0.0-1.alpha_softdevice.hex 0; shutdown"
+ 
+
+
+
+upload-softdevice:
+	@echo Flashing: s132_nrf52_5.0.0_softdevice.hex
+	$(NRFJPROG)nrfjprog --program softdevice/s132_nrf52_5.0.0_softdevice.hex -f nrf52 --sectorerase
+	$(NRFJPROG)nrfjprog --reset
 
 erase:
-	nrfjprog -f nrf52 --eraseall
+	@echo Mass erase: 
+	$(NRFJPROG)nrfjprog -f nrf52 --eraseall
+	$(NRFJPROG)nrfjprog --reset
 
-SDK_CONFIG_FILE := ../config/sdk_config.h
-CMSIS_CONFIG_TOOL := $(SDK_ROOT)/external_tools/cmsisconfig/CMSIS_Configuration_Wizard.jar
-sdk_config:
-	java -jar $(CMSIS_CONFIG_TOOL) $(SDK_CONFIG_FILE)
+upload: $(OUTPUT_BINARY_DIRECTORY)/main.hex
+	@echo Flashing: $(OUTPUT_BINARY_DIRECTORY)/main.hex
+	$(NRFJPROG)nrfjprog --program $(OUTPUT_BINARY_DIRECTORY)/main.hex  --verify --sectorerase -f nrf52 
+	$(NRFJPROG)nrfjprog --reset		
+
+
+merge:
+	srec_cat softdevice/s132_nrf52_5.0.0_softdevice.hex -intel build/main.hex -intel -o firmware.hex -intel --line-length=44
+	
+upload-merged: 
+	@echo Flashing: firmware.hex
+	$(NRFJPROG)nrfjprog --program firmware.hex  --verify --sectorerase -f nrf52 
+	$(NRFJPROG)nrfjprog --reset		
+
+upload-led-test: 
+	@echo Flashing: ledtestfirmware.hex
+	$(NRFJPROG)nrfjprog --program ledtestfirmware.hex  --verify --sectorerase -f nrf52 
+	$(NRFJPROG)nrfjprog --reset		

@@ -60,18 +60,13 @@ void deinitRTC1(void)
 
 void RTC1_IRQHandler(void)
 {
-	if (NRF_RTC1->EVENTS_COMPARE[0] != 0)
+    if (NRF_RTC1->EVENTS_COMPARE[0] != 0)
     {
-        NRF_RTC1->EVENTS_COMPARE[0] = 0;								// clear interrupt flag
-        NRF_RTC1->TASKS_CLEAR = 1;										// restart RTC1
-        
+        NRF_RTC1->EVENTS_COMPARE[0] = 0;   // clear interrupt flag
+        NRF_RTC1->TASKS_CLEAR = 1;         // restart RTC1
+
         g_rtc1_time++;
-        g_rtc1_subsec++;
-        if(g_rtc1_subsec == 993)
-        {
-			g_rtc1_subsec = 0;
-			g_rtc1_sec++;
-		}
+        g_rtc1_sec++;   // initWakeupRTC1(1000) fires ~once per second
     }
 }
 

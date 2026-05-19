@@ -1,20 +1,62 @@
 #include "uart.h"
 #include "stdarg.h"
 
+/* RX circular buffer — written in IRQ, read in main loop */
+static volatile uint8_t  g_uart_rx_buff[UART_RX_BUFFER_SIZE];
+static volatile uint16_t g_uart_widx = 0;
+static volatile uint16_t g_uart_ridx = UART_RX_BUFFER_SIZE - 1;
+
 void initUART0(uint8_t tx, uint8_t rx, uint32_t baudrate)
 {
 	NRF_P0->PIN_CNF[tx] = (GPIO_PIN_CNF_DIR_Output << GPIO_PIN_CNF_DIR_Pos);
-	NRF_P0->PIN_CNF[rx] = (GPIO_PIN_CNF_DIR_Input << GPIO_PIN_CNF_DIR_Pos);
+	NRF_P0->PIN_CNF[rx] = (GPIO_PIN_CNF_DIR_Input  << GPIO_PIN_CNF_DIR_Pos);
 
-	NRF_UART0->PSEL.TXD = (UART_PSEL_TXD_CONNECT_Connected << UART_PSEL_TXD_CONNECT_Pos) | (0 << UART_PSEL_TXD_PORT_Pos) | (tx << UART_PSEL_TXD_PIN_Pos);
+	NRF_UART0->PSEL.RTS = 0xFFFFFFFF;
+	NRF_UART0->PSEL.CTS = 0xFFFFFFFF;
 
-	NRF_UART0->PSEL.RXD = (UART_PSEL_RXD_CONNECT_Connected << UART_PSEL_RXD_CONNECT_Pos) | (0 << UART_PSEL_RXD_PORT_Pos) | (rx << UART_PSEL_RXD_PIN_Pos);
+	NRF_UART0->PSEL.TXD = (UART_PSEL_TXD_CONNECT_Connected << UART_PSEL_TXD_CONNECT_Pos)
+	                     | (0 << UART_PSEL_TXD_PORT_Pos)
+	                     | (tx << UART_PSEL_TXD_PIN_Pos);
+
+	NRF_UART0->PSEL.RXD = (UART_PSEL_RXD_CONNECT_Connected << UART_PSEL_RXD_CONNECT_Pos)
+	                     | (0 << UART_PSEL_RXD_PORT_Pos)
+	                     | (rx << UART_PSEL_RXD_PIN_Pos);
 
 	NRF_UART0->BAUDRATE = baudrate;
-	NRF_UART0->ENABLE = (UART_ENABLE_ENABLE_Enabled << UART_ENABLE_ENABLE_Pos);
+
+	/* Enable RXDRDY interrupt */
+	NRF_UART0->INTENCLR = 0xFFFFFFFF;
+	NRF_UART0->INTENSET = (UART_INTENSET_RXDRDY_Set << UART_INTENSET_RXDRDY_Pos);
+
+	NRF_UART0->ENABLE        = (UART_ENABLE_ENABLE_Enabled << UART_ENABLE_ENABLE_Pos);
 	NRF_UART0->TASKS_STARTTX = 1;
 	NRF_UART0->TASKS_STARTRX = 1;
 	NRF_UART0->EVENTS_RXDRDY = 0;
+
+	NVIC_ClearPendingIRQ(UARTE0_UART0_IRQn);
+	NVIC_SetPriority(UARTE0_UART0_IRQn, 3);
+	NVIC_EnableIRQ(UARTE0_UART0_IRQn);
+}
+
+void UARTE0_UART0_IRQHandler(void)
+{
+	if (NRF_UART0->EVENTS_RXDRDY != 0)
+	{
+		NRF_UART0->EVENTS_RXDRDY = 0;
+		g_uart_rx_buff[g_uart_widx] = NRF_UART0->RXD;
+		g_uart_widx = (g_uart_widx + 1) % UART_RX_BUFFER_SIZE;
+	}
+}
+
+/* Returns 1 and sets *ch if a byte is available, 0 otherwise */
+uint8_t getCharUART0(uint8_t *ch)
+{
+	uint16_t next_ridx = (g_uart_ridx + 1) % UART_RX_BUFFER_SIZE;
+	if (next_ridx == g_uart_widx)
+		return 0;
+	*ch = g_uart_rx_buff[next_ridx];
+	g_uart_ridx = next_ridx;
+	return 1;
 }
 
 void deinitUART0(uint8_t tx, uint8_t rx)

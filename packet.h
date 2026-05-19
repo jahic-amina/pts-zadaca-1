@@ -1,3 +1,6 @@
+#ifndef PACKET_H
+#define PACKET_H
+
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
@@ -44,3 +47,5 @@ void    fet_packet_build_msg_req(fet_packet_t *pkt,
 void    fet_packet_build_msg_rep(fet_packet_t *pkt,
                                  uint8_t daddr,
                                  uint8_t saddr);
+
+#endif /* PACKET_H */
